@@ -1,0 +1,168 @@
+%% Algorithmen 
+% Energie wird in den Speicher hinzugefügt wenn die Temperatur im Speicher kleiner als 60 Grad
+% Initialisierung 
+
+% run fcn_Pbat.m
+%[Pbs,Pbat,soc]=bssim(s,diff);
+
+Pp_ein(1,1) = 0;
+Pp_aus= zeros(length(Ppv),1);
+Pp_ges = zeros(length(Ppv),1);
+Pp_ein_soll = zeros(length(Ppv),1);
+T_soll = 60;
+P_TCS_aus = zeros(length(Ppv),1);
+P_h = zeros(length(Ppv),1);
+Pl_h = zeros(length(Ppv),1);
+Pbat_in = zeros(length(Ppv),1);
+Pbat_out = zeros(length(Ppv),1);
+P_grid = zeros(length(Ppv),1);
+T_aus(2,1) = 60;
+a = zeros(length(Ppv),1);
+P_bat_max(1,1) = 2500;
+diff = Ppv - Pel;
+soc(1,1)=1; % Ladezustand
+Ebat(1,1)=6; % Energieinhalt des Batteriespeichers in kWh
+Pbat(1,1)=2500; % Batteriespeicherleistung in W
+ 
+
+%% Fall 1
+P_TCS_ges = abs(TCS_out);        % gesammte Leistung von TCS 
+for i = 2:length(diff)
+
+    if stat_TCS(i,1) == 1 && diff(i,1) > 0
+        if P_TCS_ges(i,1) >= P_rh(i,1)
+            P_TCS_aus(i,1) = P_rh(i,1);
+            Pl_h(i,1) = 0;
+            Pbat_in(i,1) = min(min(diff(i),P_AC2BAT_in*1000)*eta_ac2bat,E_BAT*1000*(1-soc(i-1))/dt/eta_bat);
+            Pbat_out(i,1) = 0;
+            P_grid(i,1) = 0;
+            a(i,1) = 1;
+        elseif P_TCS_ges(i,1) < P_rh(i,1)
+            P_TCS_aus(i,1) = P_TCS_ges(i,1);
+            Pl_h(i,1) = (P_rh(i,1)-P_TCS_ges(i,1))/eta_h;
+            % Fall 2 
+            if diff(i,1) > Pl_h(i,1)
+                Pbat_in(i,1) = min(min((diff(i)-Pl_h(i,1)),P_AC2BAT_in*1000)*eta_ac2bat,E_BAT*1000*(1-soc(t-1))/dt/eta_bat);
+                Pbat_out(i,1) = 0;
+                P_grid(i,1) = 0;
+                a(i,1) = 2;
+            % Fall 3
+            elseif diff(i,1) < Pl_h(i,1) && P_bat_max(i,1) >= (Pl_h(i,1)-diff(i,1))
+                Pbat_in(i,1) = 0;
+                Pbat_out(i,1)=min(min((Pl_h(i,1)- diff(i)),P_BAT2AC_out*1000)/eta_bat2ac,E_BAT*1000*soc(t-1)/dt);
+                P_grid(i,1) = 0;
+                a(i,1) = 3;
+            % Fall 4
+            elseif diff(i,1) < Pl_h(i,1) && P_bat_max(i-1,1) < (Pl_h(i,1)-diff(i,1))
+                Pbat_in(i,1) = 0;
+                Pbat_out(i,1)=min(min((Pl_h(i,1)- diff(i)),P_BAT2AC_out*1000)/eta_bat2ac,E_BAT*1000*soc(t-1)/dt);
+                P_grid(i,1) = Pl_h(i,1) - diff(i,1) - Pbat_out(i,1);
+                a(i,1) = 4;
+            end 
+        end
+    % Fall 5    
+    elseif diff(i,1) < 0 && stat_TCS(i,1) == 1
+        if P_TCS_ges(i,1) >= P_rh(i,1) 
+            P_TCS_aus(i,1) = P_rh(i,1);
+            Pl_h(i,1) = 0;
+            Pbat_in(i,1) = 0;
+            Pbat_out(i,1) = min(min(-diff(i),P_BAT2AC_out*1000)/eta_bat2ac,E_BAT*1000*soc(i-1)/dt);
+            a(i,1) = 5;
+            % Fall 6
+            if -diff(i,1) <= Pbat_out(i,1) 
+                P_grid(i,1) = 0;
+                a(i,1) = 5;
+            % Fall 7    
+            elseif -diff(i,1) > Pbat_out(i,1)
+                P_grid(i,1) = -diff(i,1) - Pbat_out(i,1);
+                a(i,1) = 7;
+            end 
+        % Fall 8
+        elseif P_TCS_ges(i,1) < P_rh(i,1) 
+            P_TCS_aus(i,1) = P_TCS_ges(i,1);
+            Pl_h(i,1)= (P_rh(i,1)-P_TCS_ges(i,1))/eta_h;
+            if Pl_h(i,1) - diff(i,1) < P_bat_max(i-1,1)
+                Pbat_in(i,1) = 0;
+                Pbat_out(i,1) = min(min(P_bat_max(i-1,1) - Pl_h(i,1) +diff(i,1),P_BAT2AC_out*1000)/eta_bat2ac,E_BAT*1000*soc(i-1)/dt);
+                P_grid(i,1) = 0;
+                a(i,1) = 8;
+            % Fall 9
+            elseif Pl_h(i,1) - diff(i,1) >= P_bat_max(i-1,1)
+                Pbat_in(i,1) = 0;
+                Pbat_out(i,1) = min(min(P_BAT2AC_out*1000)/eta_bat2ac,E_BAT*1000*soc(i-1)/dt);
+                P_grid(i,1) = (Pl_h(i,1) - diff(i,1)) - Pbat_out(i,1);
+                a(i,1) = 9;
+            end
+        end 
+    % Fall 10
+    elseif diff(i,1) > 0 && stat_TCS(i,1) == 0
+        P_TCS_aus(i,1) = 0; 
+        Pl_h(i,1) = P_rh(i,1) /eta_h;
+        if Pl_h(i,1) < diff(i,1) 
+            Pbat_in(i,1) = min(min(diff(i),P_AC2BAT_in*1000)*eta_ac2bat,E_BAT*1000*(1-soc(i-1))/dt/eta_bat);
+            Pbat_out(i,1) = 0;
+            P_grid(i,1) = 0;
+            a(i,1) = 10;
+        % Fall 11
+        elseif P_rh(i,1) > diff(i,1) && P_bat_max(i-1,1) > (Pl_h(i,1) - diff(i,1))
+            Pbat_in(i,1) = 0;
+            Pbat_out(i,1) = min(min(Pl_h(i,1) - diff(i,1),P_BAT2AC_out*1000)/eta_bat2ac,E_BAT*1000*soc(i-1)/dt);
+            P_grid(i,1) = 0;
+            a(i,1) = 11;
+        % Fall 12
+        elseif Pl_h(i,1) > diff(i,1) && P_bat_max(i-1,1) < (Pl_h(i,1)-diff(i,1))
+            Pbat_in(i,1) = 0;
+            Pbat_out(i,1) = min(min(P_BAT2AC_out*1000)/eta_bat2ac,E_BAT*1000*soc(i-1,1)/dt);
+            P_grid(i,1) = Pl_h(i,1) - diff(i,1) -Pbat_out(i,1);
+            a(i,1) = 12;
+        end
+    % Fall 13 
+    elseif diff(i,1) < 0 && stat_TCS(i,1) == 0
+        P_TCS_aus(i,1) = 0; 
+        Pl_h(i,1) = P_rh(i,1) /eta_h; 
+        if P_bat_max(i-1,1) > (-diff(i,1) + Pl_h(i,1))
+            Pbat_in(i,1) = 0;
+            Pbat_out(i,1) = min(min(P_bat_max(i-1,1)+diff(i,1) - Pl_h(i,1),P_BAT2AC_out*1000)/eta_bat2ac,E_BAT*1000*soc(i-1)/dt);
+            P_grid(i,1) = 0; 
+            a(i,1) = 13;
+        % Fall 14 
+        elseif P_bat_max(i-1,1) < (-diff(i,1) +Pl_h(i,1))
+            Pbat_in(i,1) = 0; 
+            Pbat_out(i,1) = min(min(P_BAT2AC_out*1000)/eta_bat2ac,E_BAT*1000*soc(i-1,1)/dt);
+            P_grid(i,1) = -diff(i,1) + Pl_h(i,1) - Pbat_out(i,1);
+            a(i,1) = 14;
+        end
+    end
+    % Batterie 
+        P_bat_max(i,1)= E_BAT*1000*soc(i-1)/dt;
+        Pbat(i,1)=Pbat_in(i,1)-Pbat_out(i,1);
+
+        % Batteriesystemleistung bestimmen
+        Pbs(i,1)=Pbat_in(i,1)/eta_ac2bat-Pbat_out(i,1)*eta_bat2ac;
+
+        % Anpassung des Energieinhalts des Batteriespeichers
+        Ebat(i,1)=Ebat(i-1,1)+(Pbat_in(i,1)*eta_bat-Pbat_out(i,1))/1000*dt;
+
+        % Ladezustand berechnen
+        soc(i,1)=Ebat(i,1)/E_BAT;
+        
+    % TCS 
+    
+
+    
+    % Temperatursenkung im Speicher 
+   
+    %T_aus(i+1,1)= T_aus(i,1) - ((P_rh(i+1,1)-P_rh(i,1))/(cp*10^-3))/ms/3600;
+    T_aus(i+1,1) = 60;
+end
+
+
+
+
+
+
+
+
+
+
+
